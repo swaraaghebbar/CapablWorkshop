@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, query, onSnapshot, addDoc, doc, deleteDoc } from 'firebase/firestore';
+// >> IMPORTED: orderBy, limit <<
+import { getFirestore, collection, query, onSnapshot, addDoc, doc, deleteDoc, orderBy, limit } from 'firebase/firestore';
 import { Plus, X, Trash2, Calendar, Clock, MessageSquare, Bell, Send, Link, Activity, Heart, Moon } from 'lucide-react';
 
 /** ---------------------------------------
@@ -34,16 +35,17 @@ const DAILY_STEP_GOAL = 10000;
 const RECOMMENDED_SLEEP_HOURS = 7.5;
 
 // COLOR SCHEME - COLOUR DEFINITIONS
+
 const COLORS = {
-    PRIMARY_ACCENT: '#C82550',
-    SECONDARY_ACCENT: '#E07889',
-    LIGHT_BG: '#FCE4C9',
-    MAIN_BG: '#FAF0E5',
-    DARK_TEXT: '#2C3E50',
+    PRIMARY_ACCENT: '#00796B', // Deep Teal / Primary Green
+    SECONDARY_ACCENT: '#80CBC4', // Light Teal / Secondary Accent
+    LIGHT_BG: '#E0F2F1', // Very Light Teal/Green Background
+    MAIN_BG: '#F0FFFF', // Off-White / Lightest Background
+    DARK_TEXT: '#004D40', // Dark Green Text
 };
 
 /** ---------------------------------------
- * Small UI Helpers
+ * Small UI Helpers (unchanged)
  * -------------------------------------- */
 const LoadingSpinner = () => (
   <div className="flex justify-center items-center py-4">
@@ -91,7 +93,7 @@ const formatTime = (timeStr) => {
 };
 
 /** ---------------------------------------
- * Auth Login Card
+ * Auth Login Card (unchanged)
  * -------------------------------------- */
 const LoginPage = ({ handleLogin, error }) => (
   <div className="flex flex-col items-center justify-center min-h-screen p-8" style={{ backgroundColor: COLORS.MAIN_BG }}>
@@ -128,7 +130,7 @@ const LoginPage = ({ handleLogin, error }) => (
 );
 
 /** ---------------------------------------
- * Networking helper
+ * Networking helper (unchanged)
  * -------------------------------------- */
 const exponentialBackoffFetch = async (url, options, maxRetries = 3) => {
   for (let i = 0; i < maxRetries; i++) {
@@ -166,23 +168,23 @@ const App = () => {
   const [activeTab, setActiveTab] = useState('reminders');
 
   // Chatbot
-  const [chatHistory, setChatHistory] = useState([
-    { role: 'model', text: 'Hello! I am your Health Navigator chatbot. I can provide general information on medications, conditions, and health topics using Google Search for the latest context. Always consult a professional for medical advice!', sources: [] }
-  ]);
+  // >> INITIAL CHAT HISTORY IS NOW A WELCOME MESSAGE ONLY <<
+  const initialChatWelcome = { role: 'model', text: 'Hello! I am your Health Navigator chatbot. I can provide general information on medications, conditions, and health topics using Google Search for the latest context. Always consult a professional for medical advice!', sources: [], createdAt: Date.now() };
+  const [chatHistory, setChatHistory] = useState([initialChatWelcome]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
 
-  // Google Fit auth token
+  // Google Fit auth token (unchanged)
   const [googleAccessToken, setGoogleAccessToken] = useState(null);
 
-  // Health metrics
+  // Health metrics (unchanged)
   const [stepCount, setStepCount] = useState(null);
   const [sleepHours, setSleepHours] = useState(null);
   const [calories, setCalories] = useState(null);
   const [distance, setDistance] = useState(null); // km
   const [heartRate, setHeartRate] = useState(null);
 
-  // Loading flags
+  // Loading flags (unchanged)
   const [isStepsLoading, setIsStepsLoading] = useState(false);
   const [isSleepLoading, setIsSleepLoading] = useState(false);
   const [isCaloriesLoading, setIsCaloriesLoading] = useState(false);
@@ -190,14 +192,15 @@ const App = () => {
   const [isHeartRateLoading, setIsHeartRateLoading] = useState(false);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
 
-  // Assessment
+  // Assessment (unchanged)
   const [assessmentResult, setAssessmentResult] = useState(null);
   const [isAssessmentLoading, setIsAssessmentLoading] = useState(false);
 
   /** ----------------------------
-   * Firebase init & auth
+   * Firebase init & auth (unchanged)
    * --------------------------- */
   useEffect(() => {
+    // ... (Firebase init logic) ...
     try {
       const isConfigMissing = !firebaseConfig.apiKey;
       if (isConfigMissing) {
@@ -244,13 +247,15 @@ const App = () => {
   }, [isLocalRun]);
 
   /** ----------------------------
-   * Firestore listener
+   * Firestore listener - UPDATED TO INCLUDE CHAT HISTORY
    * --------------------------- */
   useEffect(() => {
     if (!db || !userId) return;
+    
+    // 1. Medication Listener (Existing)
     const medCollectionRef = collection(db, `/artifacts/${appId}/users/${userId}/medications`);
-    const q = query(medCollectionRef);
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const qMed = query(medCollectionRef);
+    const unsubscribeMeds = onSnapshot(qMed, (snapshot) => {
       const meds = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setMedications(meds);
     }, () => {
@@ -258,13 +263,40 @@ const App = () => {
         setError("Failed to fetch medication data in real-time. (Check security rules or console)");
       }
     });
-    return () => unsubscribe();
-  }, [db, userId, auth]);
+
+    // 2. Chat History Listener (NEW)
+    const chatCollectionRef = collection(db, `/artifacts/${appId}/users/${userId}/chats`);
+    // Order by 'createdAt' to maintain conversation flow, limit to keep size manageable
+    const qChat = query(chatCollectionRef, orderBy('createdAt', 'asc'), limit(100)); 
+
+    const unsubscribeChat = onSnapshot(qChat, (snapshot) => {
+      const chatMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      if (chatMessages.length > 0) {
+        // Load messages from DB
+        setChatHistory(chatMessages);
+      } else {
+        // If DB is empty, set the initial welcome message only once
+        setChatHistory([initialChatWelcome]);
+      }
+    }, (error) => {
+      console.error("Failed to fetch chat history:", error);
+      if (auth?.currentUser) {
+        setError("Failed to fetch chat history. (Check security rules or console)");
+      }
+    });
+
+    return () => { 
+      unsubscribeMeds();
+      unsubscribeChat(); // Cleanup for chat listener
+    };
+  }, [db, userId, auth]); // Added initialChatWelcome to dependencies
 
   /** ----------------------------
-   * OAuth Login
+   * OAuth Login (unchanged)
    * --------------------------- */
   const handleLogin = () => {
+    // ... (unchanged) ...
     const redirectUri = window.location.origin;
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
       `client_id=${GOOGLE_CLIENT_ID}&` +
@@ -280,7 +312,7 @@ const App = () => {
     window.location.href = authUrl;
   };
 
-  // Parse access token from URL
+  // Parse access token from URL (unchanged)
   useEffect(() => {
     if (window.location.hash) {
       const hash = window.location.hash.substring(1);
@@ -301,7 +333,7 @@ const App = () => {
   }, []);
 
   /** ---------------------------------------
-   * Helpers: consistent time window
+   * Helpers: consistent time window (unchanged)
    * -------------------------------------- */
   const getTodayWindow = () => {
     const now = Date.now();
@@ -316,8 +348,10 @@ const App = () => {
   };
 
   /** ---------------------------------------
-   * Google Fit Fetchers
+   * Google Fit Fetchers (unchanged)
    * -------------------------------------- */
+  // ... (fetchSteps, fetchSleep, fetchCalories, fetchDistance, fetchHeartRate, syncAll unchanged) ...
+
   const fetchSteps = useCallback(async () => {
     if (!googleAccessToken) { setError('Error: Google Fit Access Token is missing. Please sign in again.'); return 0; }
     setIsStepsLoading(true);
@@ -564,8 +598,9 @@ const App = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [googleAccessToken, stepCount, sleepHours, calories, distance, heartRate]);
 
+
   /** ---------------------------------------
-   * Assessment (now uses all metrics)
+   * Assessment (unchanged)
    * -------------------------------------- */
   const callAssessmentAPI = useCallback(async () => {
     const apiKey = isLocalRun ? GEMINI_API_KEY : "";
@@ -585,6 +620,7 @@ Metrics:
 - Distance Travelled: ${distance ?? "N/A"} km
 - Heart Rate: ${heartRate ?? "N/A"} bpm
 
+Go through the previous data which the user has mentioned to provide contextual responsed and maintain the context
 Give a professional health assessment considering activity level, recovery, cardiovascular load, and overall daily balance.
 Provide 3 realistic, actionable recommendations.
 `;
@@ -631,7 +667,7 @@ Provide 3 realistic, actionable recommendations.
   }, [isLocalRun, stepCount, sleepHours, calories, distance, heartRate]);
   
   /** ---------------------------------------
-   * Chatbot API Call (FIXED/NEW)
+   * Chatbot API Call - MODIFIED TO SAVE TO FIREBASE
    * -------------------------------------- */
   const callChatbotAPI = useCallback(async (newMessage) => {
     const apiKey = isLocalRun ? GEMINI_API_KEY : "";
@@ -663,6 +699,28 @@ Provide 3 realistic, actionable recommendations.
       systemInstruction: systemInstruction,
     };
 
+    // 1. Prepare and Save User Message to Firestore
+    const userMessage = { 
+        role: 'user', 
+        text: newMessage, 
+        sources: [], 
+        createdAt: Date.now() 
+    };
+
+    if (db && userId) {
+        try {
+            const chatCollectionRef = collection(db, `/artifacts/${appId}/users/${userId}/chats`);
+            // Don't await, let it save in the background
+            addDoc(chatCollectionRef, userMessage); 
+        } catch (e) {
+            console.error("Error saving user message to Firestore:", e);
+        }
+    }
+    
+    // Optimistic UI update: add user message immediately
+    setChatHistory(prev => [...prev, userMessage]);
+
+
     try {
       const res = await exponentialBackoffFetch(apiUrl, {
         method: 'POST',
@@ -679,14 +737,34 @@ Provide 3 realistic, actionable recommendations.
         modelText = `API Error: ${result.error.message}.`;
       }
       
-      setChatHistory(prev => [...prev, { role: 'model', text: modelText, sources: [] }]);
+      const modelMessage = { 
+          role: 'model', 
+          text: modelText, 
+          sources: [], 
+          createdAt: Date.now() 
+      };
+      
+      // 2. Save Model Response Message to Firestore
+      if (db && userId) {
+          try {
+              const chatCollectionRef = collection(db, `/artifacts/${appId}/users/${userId}/chats`);
+              // Await this to ensure the message is in the DB before the loading spinner disappears
+              await addDoc(chatCollectionRef, modelMessage); 
+          } catch (e) {
+              console.error("Error saving model message to Firestore:", e);
+          }
+      }
+
+      // The onSnapshot listener (in useEffect) will now handle updating the chatHistory state, 
+      // ensuring the UI reflects the persisted data accurately, including the IDs.
+      
     } catch (e) {
       console.error("Chatbot API Error:", e);
       setChatHistory(prev => [...prev, { role: 'model', text: `Error fetching response: Network error or API issue.`, sources: [] }]);
     } finally {
       setIsChatLoading(false);
     }
-  }, [isLocalRun, chatHistory]);
+  }, [isLocalRun, chatHistory, db, userId]); // Dependency update: added db and userId
 
   /** ---------------------------------------
    * Meds CRUD (unchanged)
@@ -764,7 +842,7 @@ Provide 3 realistic, actionable recommendations.
     .sort((a, b) => a.time.localeCompare(b.time));
 
   /** ---------------------------------------
-   * Renderers
+   * Renderers (unchanged)
    * -------------------------------------- */
   const renderMedicationForm = () => (
     <div className="p-6 rounded-xl space-y-4 shadow-lg" style={{ backgroundColor: COLORS.LIGHT_BG }}>
@@ -1088,12 +1166,11 @@ Provide 3 realistic, actionable recommendations.
         const message = chatInput.trim();
         if (!message) return;
         
-        // 1. Add user message to history
-        setChatHistory(prev => [...prev, { role: 'user', text: message, sources: [] }]);
-        const currentMessage = message; // Capture the current message before state clear
+        // 1. We no longer add the message here, it's handled inside callChatbotAPI and the Firestore listener.
+        const currentMessage = message; 
         setChatInput('');
         
-        // 2. Call the API
+        // 2. Call the API, which now handles saving the user message and fetching the model's response.
         callChatbotAPI(currentMessage);
       }} className="flex space-x-3 mt-4">
         <input
@@ -1115,7 +1192,7 @@ Provide 3 realistic, actionable recommendations.
   );
 
   /** ---------------------------------------
-   * Error banner
+   * Error banner (unchanged)
    * -------------------------------------- */
   const renderError = () => {
     if (!error) return null;
@@ -1133,7 +1210,7 @@ Provide 3 realistic, actionable recommendations.
   };
 
   /** ---------------------------------------
-   * Render
+   * Render (unchanged)
    * -------------------------------------- */
   if (!googleAccessToken) return <LoginPage handleLogin={handleLogin} error={error} />;
 
