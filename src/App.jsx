@@ -26,8 +26,8 @@ const FIREBASE_LOCAL_CONFIG = {
 };
 
 // Gemini & Google Fit keys (local)
-const GEMINI_API_KEY = "AIzaSyBAZ-9Vrc9Kw7MfmPUpu_GmxZCHJiqj_No";
-const GOOGLE_CLIENT_ID = '273590343-ofp6vg104lf6rcl3p0vbbho34mr261c8.apps.googleusercontent.com';
+const GEMINI_API_KEY = 'MY API KEY'
+const GOOGLE_CLIENT_ID = 'MY GOOGLE CLIENT ID';
 
 const appId = (typeof __app_id !== 'undefined' ? __app_id : 'local-health-app').replace(/[\/.]/g, '-');
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
