@@ -1,4 +1,4 @@
-VytalCare Health Navigator
+#VytalCare Health Navigator
 
 A unified personal health monitoring dashboard that aggregates wellness metrics, manages medication schedules, and uses Google Gemini for AI-driven analysis. Integrated with Google Fit, Firebase, and n8n for automated workflows.
 
